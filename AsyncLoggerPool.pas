@@ -1,9 +1,9 @@
 unit AsyncLoggerPool;
 //=======================================================================
-//    Òì²½ÈÕÖ¾¼°ÈÕÖ¾³ØÀà (TAnsycLogger & TLoggerPool) ver.1.0
+//    å¼‚æ­¥æ—¥å¿—åŠæ—¥å¿—æ± ç±» (TAsyncLogger & TLoggerPool) ver.1.0
 //    DnToHi  ( DnToHi#gmail.com)
 //    2025/10/08
-//    ÈÕÖ¾¼¶±ğÔ¼¶¨ ( LogLevel ) £º
+//    æ—¥å¿—çº§åˆ«çº¦å®š ( LogLevel ) ï¼š
 //          0 - DetailDebug
 //          1 - Debug
 //          2 - Info
@@ -17,15 +17,24 @@ interface
 
 uses
   System.SysUtils, System.Classes, System.Generics.Collections, System.Generics.Defaults,
-  System.SyncObjs, System.DateUtils, System.IOUtils,
+  System.SyncObjs, System.DateUtils, System.IOUtils, System.Types,
   Winapi.Windows;
 
 const
-  WRITE_LOG_DIR                 = 'Log';                    // ÈÕÖ¾ÎÄ¼şÄ¬ÈÏÄ¿Â¼
-  LOG_ERROR_SUCCESS             = 1;
-  LOG_ERROR_LOGGERPOOL_NOT_INIT = -1;
-  LOG_ERROR_IS_UNCPATH          = -11;
-  LOG_ERROR_IS_DRIVEROOT_PATH   = -12;
+  WRITE_LOG_DIR                     = 'Log';                  // æ—¥å¿—æ–‡ä»¶é»˜è®¤ç›®å½•
+  DEFAULT_GLOBAL_LOGGER_NAME        = 'DefaultGlobalLogger';  // é»˜è®¤å…¨å±€æ—¥å¿—å¯¹è±¡åç§°
+  DEFAULT_LOG_FILENAME_PREFIX       = 'Log';                  // é»˜è®¤æ—¥å¿—æ–‡ä»¶åå‰ç¼€
+  LOG_ERROR_SUCCESS                 = 1;                      // æˆåŠŸ
+  LOG_ERROR_LOGGER_NAME_NULL        = -1;                     // æ—¥å¿—å¯¹è±¡åç§°ä¸ºç©º
+  LOG_ERROR_LOGGERPOOL_NOT_INIT     = -2;                     // å°šæœªåˆå§‹åŒ–æ—¥å¿—æ± 
+  LOG_ERROR_INVALID_PATH_CHARS      = -11;                    // ä¼ å…¥çš„æ—¥å¿—è·¯å¾„æœ‰éæ³•å­—ç¬¦
+  LOG_ERROR_INVALID_FILENAME_CHARS  = -12;                    // ä¼ å…¥çš„æ–‡ä»¶åå‰ç¼€æœ‰éæ³•å­—ç¬¦
+  LOG_ERROR_IS_UNCPATH              = -13;                    // ä¸å…è®¸ç½‘ç»œè·¯å¾„
+  LOG_ERROR_IS_DRIVEROOT_PATH       = -14;                    // ä¸å…è®¸ç›´æ¥æŒ‡å®šç»å¯¹æ ¹è·¯å¾„
+  LOG_ERROR_PATH_TRAVERSAL          = -15;                    // ä¸å…è®¸è·¯å¾„é€ƒé€¸
+  LOG_ERROR_SEND_PREFIX_NULL        = -16;                    // ä¸å…è®¸å‘é€æ—¥å¿—å‰ç¼€ä¸ºç©º
+  LOG_ERROR_RECV_PREFIX_NULL        = -17;                    // ä¸å…è®¸æ¥æ”¶æ—¥å¿—å‰ç¼€ä¸ºç©º
+  LOG_ERROR_SAME_PREFIX             = -18;                    // ä¸å…è®¸å‘é€æ—¥å¿—å‰ç¼€ä¸æ¥æ”¶æ—¥å¿—å‰ç¼€ç›¸åŒ
 
 type
   TLogRootPathType = (lrpAppPath { lrpModulePath, default }, lrpDocumentsPath, lrpCachePath, lrpHomePath);
@@ -33,49 +42,51 @@ type
 
 const
   {$WRITEABLECONST ON}
-  WRITE_LOG_MIN_LEVEL: Byte = Ord(llDetailDebug);             // Ğ´ÈÕÖ¾µÄ×îµÍ¼¶±ğ£¬Ğ¡ÓÚ´Ë¼¶±ğ²»¼ÇÂ¼£¬Ä¬ÈÏ llDetailDebug
-  WRITE_LOG_TIME_FORMAT: string = 'yyyy-mm-dd hh:nn:ss.zzz';  // Ğ´ÈÕÖ¾Ìí¼ÓÊ±¼äµÄ¸ñÊ½
-  LOG_FILE_MAX_SIZE_IN_BYTE: NativeInt = 20 * 1024 * 1024;    // ÈÕÖ¾ÎÄ¼ş×î´ó´óĞ¡£¨×Ö½Ú£©£¬Ä¬ÈÏ 20M
-  MAX_QUEUE_ITEMS: NativeInt = 20000;                         // ÈÕÖ¾ÌõÄ¿ÁĞ±í×î´óÈİÁ¿£¬³¬³öÊ±ÉáÆú×îÔçµÄÈÕÖ¾ÌõÄ¿
-  MIN_CLEANUP_DAYS: NativeInt = 31;                           // ÈÕÖ¾ÎÄ¼şÄ¿Â¼ÖĞ×î¶à´æ´¢¶àÉÙÌìµÄÈÕÖ¾£¬³¬³öÊ±ÒÆ¶¯ÖÁ backup ×ÓÄ¿Â¼ÖĞ
-  WRITER_THREAD_INTERVAL: Cardinal = 100;                     // Ğ´ÈÕÖ¾Ïß³ÌÂÖÑ¯Ê±¼ä¼ä¸ô£¨ºÁÃë£©
+  WRITE_LOG_MIN_LEVEL: Byte = Ord(llDetailDebug);             // å†™æ—¥å¿—çš„æœ€ä½çº§åˆ«ï¼Œå°äºæ­¤çº§åˆ«ä¸è®°å½•ï¼Œé»˜è®¤ llDetailDebug
+  WRITE_LOG_TIME_FORMAT: string = 'yyyy-mm-dd hh:nn:ss.zzz';  // å†™æ—¥å¿—æ·»åŠ æ—¶é—´çš„æ ¼å¼
+  LOG_FILE_MAX_SIZE_IN_BYTE: NativeInt = 20 * 1024 * 1024;    // æ—¥å¿—æ–‡ä»¶æœ€å¤§å¤§å°ï¼ˆå­—èŠ‚ï¼‰ï¼Œé»˜è®¤ 20M
+  MAX_LOG_PATH_LENGTH: Byte = 100;                            // å…è®¸çš„æ—¥å¿—æ–‡ä»¶å­è·¯å¾„æœ€å¤§é•¿åº¦
+  MAX_LOG_FILENAME_PREFIX_LENGTH: Byte = 20;                  // å…è®¸çš„æ—¥å¿—æ–‡ä»¶åç§°å‰ç¼€æœ€å¤§é•¿åº¦
+  MAX_LOG_ITEM_PREFIX_LENGTH: Byte = 20;                      // å…è®¸çš„æ—¥å¿—å†…å®¹å‰ç¼€æœ€å¤§é•¿åº¦
+  MAX_QUEUE_ITEMS: NativeInt = 20000;                         // æ—¥å¿—æ¡ç›®åˆ—è¡¨æœ€å¤§å®¹é‡ï¼Œè¶…å‡ºæ—¶èˆå¼ƒæœ€æ—©çš„æ—¥å¿—æ¡ç›®
+  MIN_CLEANUP_DAYS: NativeInt = 31;                           // æ—¥å¿—æ–‡ä»¶ç›®å½•ä¸­æœ€å¤šå­˜å‚¨å¤šå°‘å¤©çš„æ—¥å¿—ï¼Œè¶…å‡ºæ—¶ç§»åŠ¨è‡³ backup å­ç›®å½•ä¸­
+  WRITER_THREAD_INTERVAL: Cardinal = 100;                     // å†™æ—¥å¿—çº¿ç¨‹è½®è¯¢æ—¶é—´é—´éš”ï¼ˆæ¯«ç§’ï¼‰
   {$WRITEABLECONST OFF}
 
 type
   TAsyncLogger = class
   private
-    // ÈÕÖ¾ÌõÄ¿
     type
       TLogItem = record
         Bytes: TBytes;
         Level: TLogLevel;
       end;
   private
-    FQueue: TQueue<TLogItem>;                               // ´ıĞ´ÈëÈÕÖ¾ÌõÄ¿ÁĞ±í
-    FQueueLock: TRTLSRWLock;                                // ÈÕÖ¾ÌõÄ¿ÁĞ±í²Ù×÷Ëø
+    FQueue: TQueue<TLogItem>;                               // å¾…å†™å…¥æ—¥å¿—æ¡ç›®åˆ—è¡¨
+    FQueueLock: TRTLSRWLock;                                // æ—¥å¿—æ¡ç›®åˆ—è¡¨æ“ä½œé”
 
-    FWriterThread: TThread;                                 // ½«ÈÕÖ¾ÌõÄ¿Ğ´Èë´ÅÅÌÎÄ¼şµÄÏß³Ì
-    FNewItemEvent: TEvent;                                  // ÓĞĞÂµÄÈÕÖ¾ÌõÄ¿
-    FTerminate: Boolean;                                    // ÊÇ·ñÒªÍË³ö
+    FWriterThread: TThread;                                 // å°†æ—¥å¿—æ¡ç›®å†™å…¥ç£ç›˜æ–‡ä»¶çš„çº¿ç¨‹
+    FNewItemEvent: TEvent;                                  // æœ‰æ–°çš„æ—¥å¿—æ¡ç›®
+    FFlushEvent: TEvent;                                    // å†™å…¥æ—¥å¿—æ¡ç›®å®Œæˆ
+    FTerminate: Boolean;                                    // æ˜¯å¦è¦é€€å‡º
 
-    FFileStream: TFileStream;                               // ÎÄ¼şÁ÷£¬½öÔÚĞ´Ïß³ÌÖĞ²Ù×÷
-    FCurrentLogFileName: string;                            // µ±Ç°ÈÕÖ¾ÎÄ¼şÃû³Æ
-    FCurrentLogTime: TDateTime;                             // µ±Ç°ÈÕÖ¾ÎÄ¼şËùÊôÊ±¼ä
-//    FLastCleanupTime: TDateTime;                            // ÉÏ´ÎÇåÀí¾ÉÈÕÖ¾ÎÄ¼şµÄÊ±¼ä
+    FFileStream: TFileStream;                               // æ–‡ä»¶æµï¼Œä»…åœ¨å†™çº¿ç¨‹ä¸­æ“ä½œ
+    FCurrentLogFileName: string;                            // å½“å‰æ—¥å¿—æ–‡ä»¶åç§°
+    FCurrentLogTime: TDateTime;                             // å½“å‰æ—¥å¿—æ–‡ä»¶æ‰€å±æ—¶é—´
 
-    FPrevSendLog: string;                                   // ÉÏÒ»´Î·¢ËÍÈÕÖ¾µÄÄÚÈİ£¬µ±²»Çø·Ö·¢ËÍ½ÓÊÕÊ±ÎªÉÏÒ»´ÎµÄÈÕÖ¾ÄÚÈİ
-    FPrevSendLogLevel: TLogLevel;                           // ÉÏÒ»´Î·¢ËÍÈÕÖ¾µÄµÈ¼¶£¬µ±²»Çø·Ö·¢ËÍ½ÓÊÕÊ±ÎªÉÏÒ»´ÎµÄÈÕÖ¾µÈ¼¶
-    FPrevRecvLog: string;                                   // ÉÏÒ»´Î½ÓÊÕÈÕÖ¾µÄÄÚÈİ
-    FPrevRecvLogLevel: TLogLevel;                           // ÉÏÒ»´Î½ÓÊÕÈÕÖ¾µÄµÈ¼¶
+    FPrevSendLog: string;                                   // ä¸Šä¸€æ¬¡å‘é€æ—¥å¿—çš„å†…å®¹ï¼Œå½“ä¸åŒºåˆ†å‘é€æ¥æ”¶æ—¶ä¸ºä¸Šä¸€æ¬¡çš„æ—¥å¿—å†…å®¹
+    FPrevSendLogLevel: TLogLevel;                           // ä¸Šä¸€æ¬¡å‘é€æ—¥å¿—çš„ç­‰çº§ï¼Œå½“ä¸åŒºåˆ†å‘é€æ¥æ”¶æ—¶ä¸ºä¸Šä¸€æ¬¡çš„æ—¥å¿—ç­‰çº§
+    FPrevRecvLog: string;                                   // ä¸Šä¸€æ¬¡æ¥æ”¶æ—¥å¿—çš„å†…å®¹
+    FPrevRecvLogLevel: TLogLevel;                           // ä¸Šä¸€æ¬¡æ¥æ”¶æ—¥å¿—çš„ç­‰çº§
 
-    FLoggerName: string;                                    // ÈÕÖ¾¶ÔÏóµÄÃû³Æ
-    FLogFilePath: string;                                   // ÈÕÖ¾ÎÄ¼şËùÔÚÄ¿Â¼
-    FLogFileNamePrefix: string;                             // ÈÕÖ¾ÎÄ¼şÃûÇ°×º
+    FLoggerName: string;                                    // æ—¥å¿—å¯¹è±¡çš„åç§°
+    FLogFilePath: string;                                   // æ—¥å¿—æ–‡ä»¶æ‰€åœ¨ç›®å½•
+    FLogFileNamePrefix: string;                             // æ—¥å¿—æ–‡ä»¶åå‰ç¼€
 
-    FFilterLog: Boolean;                                    // ÊÇ·ñ¹ıÂËÈÕÖ¾ÄÚÈİ
-    FDistinguishSendRecv: Boolean;                          // ÈÕÖ¾ÊÇ·ñÇø·Ö·¢ËÍºÍ½ÓÊÕ
-    FSendPrefix: string;                                    // ·¢ËÍÈÕÖ¾µÄÇ°×º
-    FRecvPrefix: string;                                    // ½ÓÊÕÈÕÖ¾µÄÇ°×º
+    FFilterLog: Boolean;                                    // æ˜¯å¦è¿‡æ»¤æ—¥å¿—å†…å®¹
+    FDistinguishSendRecv: Boolean;                          // æ—¥å¿—æ˜¯å¦åŒºåˆ†å‘é€å’Œæ¥æ”¶
+    FSendPrefix: string;                                    // å‘é€æ—¥å¿—çš„å‰ç¼€
+    FRecvPrefix: string;                                    // æ¥æ”¶æ—¥å¿—çš„å‰ç¼€
 
     function GetLogFileNameForNow: string;
     procedure EnsureLogDirExists;
@@ -94,7 +105,7 @@ type
     procedure Log(const AText: string; ALogLevel: TLogLevel);
     procedure LogFmt(const AFormat: string; const AArgs: array of const; ALogLevel: TLogLevel);
 
-    procedure Flush;                                        // ¿ÉÑ¡¹ı³Ì£¬Ç¿ÖÆ»½ĞÑĞ´ÈÕÖ¾Ïß³Ì£¬½«ÉĞÎ´Ğ´Èë´ÅÅÌµÄÈÕÖ¾ÌõÄ¿Ğ´Èë´ÅÅÌ
+    procedure Flush;                                        // å¯é€‰è¿‡ç¨‹ï¼Œå¼ºåˆ¶å”¤é†’å†™æ—¥å¿—çº¿ç¨‹ï¼Œå°†å°šæœªå†™å…¥ç£ç›˜çš„æ—¥å¿—æ¡ç›®å†™å…¥ç£ç›˜
 
     property LoggerName: string read FLoggerName;
   end;
@@ -115,18 +126,22 @@ type
     procedure ShutdownAll;
   end;
 
-  function CreateGlobalLogger(ALogRootPathType: TLogRootPathType;
-    const ALoggerName, ALogPath, ALogFileNamePrefix: string;
-    AFilterLog: Boolean = True; ADistinguishSendRecv: Boolean = True; const ASendPrefix: string = '';
+  function CreateGlobalLogger(const ALogPath: string = WRITE_LOG_DIR;
+    const ALogFileNamePrefix: string = DEFAULT_LOG_FILENAME_PREFIX;
+    ALogRootPathType: TLogRootPathType = lrpAppPath;
+    const ALoggerName: string = DEFAULT_GLOBAL_LOGGER_NAME;
+    AFilterLog: Boolean = True;
+    ADistinguishSendRecv: Boolean = True;
+    const ASendPrefix: string = '';
     const ARecvPrefix: string = ''): NativeInt;
   procedure FreeGlobalLogger;
   procedure WriteLog(const AText: string; ALogLevel: TLogLevel = llDetailDebug); overload;
   procedure WriteLogFmt(const AFormat: string; const AArgs: array of const; ALogLevel: TLogLevel = llDetailDebug); overload;
 
-  function CreateGlobalLoggerPool(ALogRootPathType: TLogRootPathType): NativeInt;
+  function CreateGlobalLoggerPool(ALogRootPathType: TLogRootPathType = lrpAppPath): NativeInt;
   procedure FreeGlobalLoggerPool;
   function GetLogger(out ALogger: TAsyncLogger; const ALoggerName, ALogPath, ALogFileNamePrefix: string;
-    AFilterLog: Boolean = True; ADistinguishSendRecv: Boolean = True; const ASendPrefix: string = '';
+    AFilterLog: Boolean = False; ADistinguishSendRecv: Boolean = False; const ASendPrefix: string = '';
     const ARecvPrefix: string = ''): NativeInt;
   procedure WriteLog(ALogger: TAsyncLogger; const AText: string; ALogLevel: TLogLevel = llDetailDebug); overload;
   procedure WriteLogFmt(ALogger: TAsyncLogger; const AFormat: string; const AArgs: array of const; ALogLevel: TLogLevel = llDetailDebug); overload;
@@ -142,23 +157,24 @@ implementation
 
 function CreateGlobalLoggerPool(ALogRootPathType: TLogRootPathType): NativeInt;
 var
-  LLogPath: string;
+  LLogRootPath: string;
 begin
   if Assigned(GlobalLoggerPool) then
     Exit(LOG_ERROR_SUCCESS);
 
   case ALogRootPathType of
-    lrpDocumentsPath: LLogPath := TPath.Combine(TPath.GetDocumentsPath, 'DnToHi');
-    lrpCachePath: LLogPath := TPath.Combine(TPath.GetCachePath, 'DnToHi');
-    lrpHomePath: LLogPath := TPath.Combine(TPath.GetHomePath, 'DnToHi');
+    lrpDocumentsPath: LLogRootPath := TPath.Combine(TPath.GetDocumentsPath, 'DnToHi');
+    lrpCachePath: LLogRootPath := TPath.Combine(TPath.GetCachePath, 'DnToHi');
+    lrpHomePath: LLogRootPath := TPath.Combine(TPath.GetHomePath, 'DnToHi');
     else begin
       if IsLibrary then
-        LLogPath := ExtractFilePath(System.SysUtils.GetModuleName(HInstance))
+        LLogRootPath := ExtractFilePath(System.SysUtils.GetModuleName(HInstance))
       else
-        LLogPath := ExtractFilePath(ParamStr(0));
+        LLogRootPath := ExtractFilePath(ParamStr(0));
     end;
   end;
-  GlobalLoggerPool := TLoggerPool.Create(LLogPath);
+  LLogRootPath := IncludeTrailingPathDelimiter(LLogRootPath);
+  GlobalLoggerPool := TLoggerPool.Create(LLogRootPath);
   Result := LOG_ERROR_SUCCESS;
 end;
 
@@ -170,11 +186,20 @@ end;
 function GetLogger(out ALogger: TAsyncLogger;const ALoggerName, ALogPath, ALogFileNamePrefix: string;
   AFilterLog, ADistinguishSendRecv: Boolean; const ASendPrefix, ARecvPrefix: string): NativeInt;
 var
-  LLogPath: string;
+  LLogPath, LLogFileNamePrefix, LSendPrefix, LRecvPrefix: string;
 begin
   ALogger := nil;
   if not Assigned(GlobalLoggerPool) then
     Exit(LOG_ERROR_LOGGERPOOL_NOT_INIT);
+
+  if Trim(ALoggerName) = '' then
+    Exit(LOG_ERROR_LOGGER_NAME_NULL);
+
+  if not TPath.HasValidPathChars(ALogPath, False) then
+    Exit(LOG_ERROR_INVALID_PATH_CHARS);
+
+  if not TPath.HasValidFileNameChars(ALogFileNamePrefix, False) then
+    Exit(LOG_ERROR_INVALID_FILENAME_CHARS);
 
   if TPath.IsUNCPath(ALogPath) then
     Exit(LOG_ERROR_IS_UNCPATH);
@@ -183,12 +208,37 @@ begin
     Exit(LOG_ERROR_IS_DRIVEROOT_PATH);
 
   if ALogPath = '' then
-    LLogPath := TPath.Combine(GlobalLoggerPool.FBasePath, WRITE_LOG_DIR)
+    LLogPath := WRITE_LOG_DIR
+  else if Length(ALogPath) > MAX_LOG_PATH_LENGTH then
+    LLogPath := ALogPath.Substring(0, MAX_LOG_PATH_LENGTH)
   else
-    LLogPath := TPath.Combine(GlobalLoggerPool.FBasePath, ALogPath);
+    LLogPath := ALogPath;
+  LLogPath := IncludeTrailingPathDelimiter(TPath.GetFullPath(TPath.Combine(GlobalLoggerPool.FBasePath, LLogPath)));
+  if not LLogPath.StartsWith(GlobalLoggerPool.FBasePath, True) then
+    Exit(LOG_ERROR_PATH_TRAVERSAL);
+  if Length(ALogFileNamePrefix) > MAX_LOG_FILENAME_PREFIX_LENGTH then
+    LLogFileNamePrefix := ALogFileNamePrefix.Substring(0, MAX_LOG_FILENAME_PREFIX_LENGTH)
+  else
+    LLogFileNamePrefix := ALogFileNamePrefix;
+  if AFilterLog and ADistinguishSendRecv then
+  begin
+    LSendPrefix := Trim(ASendPrefix);
+    if LSendPrefix = '' then
+      Exit(LOG_ERROR_SEND_PREFIX_NULL)
+    else if Length(LSendPrefix) > MAX_LOG_ITEM_PREFIX_LENGTH then
+      LSendPrefix := LSendPrefix.Substring(0, MAX_LOG_ITEM_PREFIX_LENGTH);
 
-  ALogger := GlobalLoggerPool.GetLogger(ALoggerName, LLogPath, ALogFileNamePrefix, AFilterLog,
-    ADistinguishSendRecv, ASendPrefix, ARecvPrefix);
+    LRecvPrefix := Trim(ARecvPrefix);
+    if LRecvPrefix = '' then
+      Exit(LOG_ERROR_RECV_PREFIX_NULL)
+    else if Length(LRecvPrefix) > MAX_LOG_ITEM_PREFIX_LENGTH then
+      LRecvPrefix := LRecvPrefix.Substring(0, MAX_LOG_ITEM_PREFIX_LENGTH);
+
+    if SameText(LSendPrefix, LRecvPrefix) then
+      Exit(LOG_ERROR_SAME_PREFIX);
+  end;
+  ALogger := GlobalLoggerPool.GetLogger(ALoggerName, LLogPath, LLogFileNamePrefix, AFilterLog,
+    ADistinguishSendRecv, LSendPrefix, LRecvPrefix);
   Result := LOG_ERROR_SUCCESS;
 end;
 
@@ -214,14 +264,23 @@ begin
   end;
 end;
 
-function CreateGlobalLogger(ALogRootPathType: TLogRootPathType;
-  const ALoggerName, ALogPath, ALogFileNamePrefix: string; AFilterLog,
-  ADistinguishSendRecv: Boolean; const ASendPrefix, ARecvPrefix: string): NativeInt;
+function CreateGlobalLogger(const ALogPath, ALogFileNamePrefix: string; ALogRootPathType: TLogRootPathType;
+  const ALoggerName: string; AFilterLog, ADistinguishSendRecv: Boolean;
+  const ASendPrefix, ARecvPrefix: string): NativeInt;
 var
-  LLogPath: string;
+  LLogRootPath, LLogPath, LLogFileNamePrefix, LSendPrefix, LRecvPrefix: string;
 begin
   if Assigned(GlobalLogger) then
     Exit(LOG_ERROR_SUCCESS);
+
+  if Trim(ALoggerName) = '' then
+    Exit(LOG_ERROR_LOGGER_NAME_NULL);
+
+  if not TPath.HasValidPathChars(ALogPath, False) then
+    Exit(LOG_ERROR_INVALID_PATH_CHARS);
+
+  if not TPath.HasValidFileNameChars(ALogFileNamePrefix, False) then
+    Exit(LOG_ERROR_INVALID_FILENAME_CHARS);
 
   if TPath.IsUNCPath(ALogPath) then
     Exit(LOG_ERROR_IS_UNCPATH);
@@ -230,22 +289,49 @@ begin
     Exit(LOG_ERROR_IS_DRIVEROOT_PATH);
 
   case ALogRootPathType of
-    lrpDocumentsPath: LLogPath := TPath.Combine(TPath.GetDocumentsPath, 'DnToHi');
-    lrpCachePath: LLogPath := TPath.Combine(TPath.GetCachePath, 'DnToHi');
-    lrpHomePath: LLogPath := TPath.Combine(TPath.GetHomePath, 'DnToHi');
+    lrpDocumentsPath: LLogRootPath := TPath.Combine(TPath.GetDocumentsPath, 'DnToHi');
+    lrpCachePath: LLogRootPath := TPath.Combine(TPath.GetCachePath, 'DnToHi');
+    lrpHomePath: LLogRootPath := TPath.Combine(TPath.GetHomePath, 'DnToHi');
     else begin
       if IsLibrary then
-        LLogPath := ExtractFilePath(System.SysUtils.GetModuleName(HInstance))
+        LLogRootPath := ExtractFilePath(System.SysUtils.GetModuleName(HInstance))
       else
-        LLogPath := ExtractFilePath(ParamStr(0));
+        LLogRootPath := ExtractFilePath(ParamStr(0));
     end;
   end;
+  LLogRootPath := IncludeTrailingPathDelimiter(LLogRootPath);
   if ALogPath = '' then
-    LLogPath := TPath.Combine(LLogPath, WRITE_LOG_DIR)
+    LLogPath := WRITE_LOG_DIR
+  else if Length(ALogPath) > MAX_LOG_PATH_LENGTH then
+    LLogPath := ALogPath.Substring(0, MAX_LOG_PATH_LENGTH)
   else
-    LLogPath := TPath.Combine(LLogPath, ALogPath);
-  GlobalLogger := TAsyncLogger.Create(ALoggerName, LLogPath, ALogFileNamePrefix, AFilterLog, ADistinguishSendRecv,
-    ASendPrefix, ARecvPrefix);
+    LLogPath := ALogPath;
+  LLogPath := IncludeTrailingPathDelimiter(TPath.GetFullPath(TPath.Combine(LLogRootPath, LLogPath)));
+  if not LLogPath.StartsWith(LLogRootPath, True) then
+    Exit(LOG_ERROR_PATH_TRAVERSAL);
+  if Length(ALogFileNamePrefix) > MAX_LOG_FILENAME_PREFIX_LENGTH then
+    LLogFileNamePrefix := ALogFileNamePrefix.Substring(0, MAX_LOG_FILENAME_PREFIX_LENGTH)
+  else
+    LLogFileNamePrefix := ALogFileNamePrefix;
+  if AFilterLog and ADistinguishSendRecv then
+  begin
+    LSendPrefix := Trim(ASendPrefix);
+    if LSendPrefix = '' then
+      Exit(LOG_ERROR_SEND_PREFIX_NULL)
+    else if Length(LSendPrefix) > MAX_LOG_ITEM_PREFIX_LENGTH then
+      LSendPrefix := LSendPrefix.Substring(0, MAX_LOG_ITEM_PREFIX_LENGTH);
+
+    LRecvPrefix := Trim(ARecvPrefix);
+    if LRecvPrefix = '' then
+      Exit(LOG_ERROR_RECV_PREFIX_NULL)
+    else if Length(LRecvPrefix) > MAX_LOG_ITEM_PREFIX_LENGTH then
+      LRecvPrefix := LRecvPrefix.Substring(0, MAX_LOG_ITEM_PREFIX_LENGTH);
+
+    if SameText(LSendPrefix, LRecvPrefix) then
+      Exit(LOG_ERROR_SAME_PREFIX);
+  end;
+  GlobalLogger := TAsyncLogger.Create(ALoggerName, LLogPath, LLogFileNamePrefix, AFilterLog, ADistinguishSendRecv,
+    LSendPrefix, LRecvPrefix);
   Result := LOG_ERROR_SUCCESS;
 end;
 
@@ -258,13 +344,13 @@ procedure WriteLog(const AText: string; ALogLevel: TLogLevel);
 var
   L: TAsyncLogger;
 begin
-  L := GlobalLogger; // local ref
+  L := GlobalLogger;
   if Assigned(L) then
   begin
     try
       L.Log(AText, ALogLevel);
     except
-      // swallow to avoid bubbling
+      // swallow
     end;
   end;
 end;
@@ -303,13 +389,13 @@ begin
   InitializeSRWLock(FQueueLock);
 
   FNewItemEvent := TEvent.Create(nil, False, False, '');
+  FFlushEvent := TEvent.Create(nil, True, False, '');
   FTerminate := False;
 
   FFileStream := nil; // delayed creation, it will be created when it is used the first time
 
   FCurrentLogFileName := '';
   FCurrentLogTime := 0;
-//  FLastCleanupTime := 0;
 
   FPrevSendLog := '';
   FPrevSendLogLevel := llUnknown;
@@ -319,10 +405,13 @@ begin
   FWriterThread := TThread.CreateAnonymousThread(WriterThreadProc);
   FWriterThread.FreeOnTerminate := False;
   FWriterThread.Start;
+  Self.Log('åˆ›å»º/æ‰“å¼€æ—¥å¿—æ–‡ä»¶', llInfo);
 end;
 
 destructor TAsyncLogger.Destroy;
 begin
+//  Flush;
+  Self.Log('å…³é—­æ—¥å¿—æ–‡ä»¶', llInfo);
   FTerminate := True;
   if Assigned(FNewItemEvent) then
     FNewItemEvent.SetEvent;
@@ -344,6 +433,8 @@ begin
 
   if Assigned(FNewItemEvent) then
     FreeAndNil(FNewItemEvent);
+  if Assigned(FFlushEvent) then
+    FreeAndNil(FFlushEvent);
   CloseStreamSafe;
   inherited;
 end;
@@ -388,34 +479,25 @@ end;
 
 procedure TAsyncLogger.CleanupOldLogs;
 var
-  LSR: TSearchRec;
-  LBackupDir, LFileName, LDest: string;
+  LBackupDir, LFileName: string;
+  LFiles: TStringDynArray;
+  LFileDate: TDateTime;
 begin
-  LBackupDir := TPath.Combine(FLogFilePath, 'Backup'); // ExtractFilePath(FCurrentLogFileName) + 'Backup\';
+  LBackupDir := TPath.Combine(FLogFilePath, 'Backup');
   if not TDirectory.Exists(LBackupDir) then
     TDirectory.CreateDirectory(LBackupDir);
 
-  if System.SysUtils.FindFirst(TPath.Combine(FLogFilePath, '*.log'), faAnyFile, LSR) = 0 then
-  try
-    repeat
-      if (LSR.Attr and faDirectory) <> 0 then
-        Continue;
-      if DaysBetween(Now, LSR.CreationTime) > MIN_CLEANUP_DAYS then
-      begin
-        LFileName := TPath.Combine(FLogFilePath, LSR.Name);
-        LDest := TPath.Combine(LBackupDir, LSR.Name);
-        try
-          TFile.Move(LFileName, LDest);
-        except
-          // ºöÂÔÒÆ¶¯Ê§°Ü£¨ÎÄ¼ş±»Õ¼ÓÃµÈ£©
-        end;
-      end;
-    until System.SysUtils.FindNext(LSR) <> 0;
-  finally
-    System.SysUtils.FindClose(LSR);
-  end;
-
-//  FLastCleanupTime := Now;
+  LFiles := TDirectory.GetFiles(FLogFilePath, '*.log');
+  for LFileName in LFiles do
+  begin
+    try
+      LFileDate := TFile.GetCreationTime(LFileName);
+      if DaysBetween(Now, LFileDate) > MIN_CLEANUP_DAYS then
+        TFile.Move(LFileName, TPath.Combine(LBackupDir, ExtractFileName(LFileName)));
+    except
+      // å¿½ç•¥ç§»åŠ¨å¤±è´¥ï¼ˆæ–‡ä»¶è¢«å ç”¨ç­‰ï¼‰
+    end;
+  end; // for
 end;
 
 procedure TAsyncLogger.CloseStreamSafe;
@@ -490,20 +572,26 @@ begin
     begin
       AcquireSRWLockExclusive(FQueueLock);
       try
-        if FQueue.Count = 0 then
-          Continue;
-        LocalQueue := FQueue;
-        FQueue := TQueue<TLogItem>.Create;
+        if FQueue.Count > 0 then
+        begin
+          LocalQueue := FQueue;
+          FQueue := TQueue<TLogItem>.Create;
+        end
+        else
+          LocalQueue := nil;
       finally
         ReleaseSRWLockExclusive(FQueueLock);
       end;
+
+      if not Assigned(LocalQueue) then
+        Continue;
 
       try
         try
           RotateByDateIfNeeded;
         except
-          OutputDebugString(PChar(Format('´´½¨»ò¶ÁĞ´ÈÕÖ¾ÎÄ¼ş %s Ê§°Ü£¬¶ªÆú %d ÌõÈÕÖ¾', [
-            FCurrentLogFileName, LocalQueue.Count])));
+          OutputDebugString(PChar(Format('åˆ›å»ºæˆ–è¯»å†™æ—¥å¿—æ–‡ä»¶ %s å¤±è´¥ï¼Œä¸¢å¼ƒ %d æ¡æ—¥å¿—',
+            [FCurrentLogFileName, LocalQueue.Count])));
           LocalQueue.Clear;
           if FTerminate then
             Break
@@ -522,6 +610,8 @@ begin
           end;
         end; // for
 
+        if Assigned(FFlushEvent) then
+          FFlushEvent.SetEvent;
         RotateBySizeIfNeeded;
         if FTerminate then
           Break;
@@ -582,7 +672,7 @@ begin
     begin
       if FDistinguishSendRecv then
       begin
-        if string.StartsText(FSendPrefix, AText) then
+        if AText.StartsWith(FSendPrefix, True) then
         begin
           LWriteLog := (not SameText(FPrevSendLog, AText)) or (FPrevSendLogLevel <> ALogLevel);
           if LWriteLog then
@@ -591,7 +681,7 @@ begin
             FPrevSendLogLevel := ALogLevel;
           end;
         end // if isSendLog
-        else if string.StartsText(FRecvPrefix, AText) then
+        else if AText.StartsWith(FRecvPrefix, True) then
         begin
           LWriteLog := (not SameText(FPrevRecvLog, AText)) or (FPrevRecvLogLevel <> ALogLevel);
           if LWriteLog then
@@ -614,34 +704,38 @@ begin
     end // if FFilterLog then
     else
       LWriteLog := True;
+  finally
+    ReleaseSRWLockExclusive(FQueueLock);
+  end;
 
-    if not LWriteLog then
-      Exit;
+  if not LWriteLog then
+    Exit;
 
-    try
-      case ALogLevel of
-        llDetailDebug: Line := '[Detail]' + #9 + FormatDateTime(WRITE_LOG_TIME_FORMAT, Now) + #9 + AText + sLineBreak;
-        llDebug: Line := '[Debug]' + #9 + FormatDateTime(WRITE_LOG_TIME_FORMAT, Now) + #9 + AText + sLineBreak;
-        llInfo: Line := '[Info]' + #9 + FormatDateTime(WRITE_LOG_TIME_FORMAT, Now) + #9 + AText + sLineBreak;
-        llWarning: Line := '[Warning]' + #9 + FormatDateTime(WRITE_LOG_TIME_FORMAT, Now) + #9 + AText + sLineBreak;
-        llError: Line := '[Error]' + #9 + FormatDateTime(WRITE_LOG_TIME_FORMAT, Now) + #9 + AText + sLineBreak;
-        llFatal: Line := '[Fatal]' + #9 + FormatDateTime(WRITE_LOG_TIME_FORMAT, Now) + #9 + AText + sLineBreak;
-        llUnknown: Exit;
-      end;
-    except
-      Line := AText + sLineBreak;
+  try
+    case ALogLevel of
+      llDetailDebug: Line := '[V]' + #9 + FormatDateTime(WRITE_LOG_TIME_FORMAT, Now) + #9 + AText + sLineBreak;
+      llDebug: Line := '[D]' + #9 + FormatDateTime(WRITE_LOG_TIME_FORMAT, Now) + #9 + AText + sLineBreak;
+      llInfo: Line := '[I]' + #9 + FormatDateTime(WRITE_LOG_TIME_FORMAT, Now) + #9 + AText + sLineBreak;
+      llWarning: Line := '[W]' + #9 + FormatDateTime(WRITE_LOG_TIME_FORMAT, Now) + #9 + AText + sLineBreak;
+      llError: Line := '[E]' + #9 + FormatDateTime(WRITE_LOG_TIME_FORMAT, Now) + #9 + AText + sLineBreak;
+      llFatal: Line := '[F]' + #9 + FormatDateTime(WRITE_LOG_TIME_FORMAT, Now) + #9 + AText + sLineBreak;
+      llUnknown: Exit;
     end;
+  except
+    Line := AText + sLineBreak;
+  end;
 
-    Bytes := TEncoding.UTF8.GetBytes(Line);
-    if Length(Bytes) = 0 then
-      Exit;
+  Bytes := TEncoding.UTF8.GetBytes(Line);
+  if Length(Bytes) = 0 then
+    Exit;
 
-    Item.Bytes := Bytes;
-    Item.Level := ALogLevel;
+  Item.Bytes := Bytes;
+  Item.Level := ALogLevel;
 
+  AcquireSRWLockExclusive(FQueueLock);
+  try
     if FQueue.Count >= MAX_QUEUE_ITEMS then
-      // queue full: drop oldest to keep memory bounded
-      FQueue.Dequeue;
+      FQueue.Dequeue; // queue full: drop oldest to keep memory bounded
     FQueue.Enqueue(Item);
   finally
     ReleaseSRWLockExclusive(FQueueLock);
@@ -667,11 +761,13 @@ end;
 procedure TAsyncLogger.Flush;
 begin
   // wake writer and wait a short while for it to drain
-  if Assigned(FNewItemEvent) then
-  begin
-    FNewItemEvent.SetEvent;
-    Sleep(20);
-  end;
+  if not Assigned(FNewItemEvent) then
+    Exit;
+  if Assigned(FFlushEvent) then
+    FFlushEvent.ResetEvent;
+  FNewItemEvent.SetEvent;
+  if Assigned(FFlushEvent) then
+    FFlushEvent.WaitFor(5000); // ç­‰ 5 ç§’
 end;
 
 { TLoggerPool }
@@ -687,12 +783,13 @@ end;
 destructor TLoggerPool.Destroy;
 begin
   try
+//    FlushAll;
     ShutdownAll;
   finally
     FLoggers.Free;
     DeleteCriticalSection(FLock);
   end;
-
+  inherited;
 end;
 
 function TLoggerPool.GetLogger(const ALoggerName, ALogFilePath, ALogFileNamePrefix: string;
@@ -700,7 +797,6 @@ function TLoggerPool.GetLogger(const ALoggerName, ALogFilePath, ALogFileNamePref
 var
   LLogger: TAsyncLogger;
 begin
-  Result := nil;
   EnterCriticalSection(FLock);
   try
     if not FLoggers.TryGetValue(ALoggerName, LLogger) then
@@ -729,18 +825,13 @@ begin
 end;
 
 procedure TLoggerPool.ShutdownAll;
-var
-  LLogger: TAsyncLogger;
 begin
   EnterCriticalSection(FLock);
   try
-    for LLogger in FLoggers.Values do
-      LLogger.Free; // doOwnsValues »á×Ô¶¯ÇåÀí
-    FLoggers.Clear;
+    FLoggers.Clear; // doOwnsValues ä¼šè‡ªåŠ¨æ¸…ç†
   finally
     LeaveCriticalSection(FLock);
   end;
 end;
 
 end.
-
